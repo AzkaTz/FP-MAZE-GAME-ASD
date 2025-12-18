@@ -621,13 +621,13 @@ public class JungleMazeGame extends JFrame {
         }
 
         void drawExploredOverlay(Graphics2D g2, int x, int y, int s) {
-            g2.setColor(new Color(255, 255, 170, 160));
+            g2.setColor(new Color(246, 61, 61, 126));
             g2.fillRect(x+2, y+2, s-4, s-4);
         }
 
         void drawSolutionOverlay(Graphics2D g2, int x, int y, int s) {
             // bright blue final path
-            g2.setColor(new Color(30,144,255,220)); // DodgerBlue
+            g2.setColor(new Color(255, 30, 30,220)); // DodgerBlue
             g2.fillRect(x+2, y+2, s-4, s-4);
         }
 
@@ -955,11 +955,11 @@ public class JungleMazeGame extends JFrame {
         Maze mz;
         SolverType type;
         boolean found = false;
-        int steps = 0;                // traversal steps: nodes expanded
-        int shortestPathSteps = 0;    // number of moves from start to exit (path length in edges)
+        int steps = 0;
+        int shortestPathSteps = 0;
         double totalWeight = 0.0;
 
-        // BFS/DFS
+        // BFS/DFS - shared deque
         Deque<SimpleNode> deque;
         boolean[][] visited;
         SimpleNode[][] parent;
@@ -992,13 +992,14 @@ public class JungleMazeGame extends JFrame {
 
         class SimpleNode {
             int r,c;
-            int d; // distance steps for BFS/DFS
+            int d;
             SimpleNode(int r,int c,int d){this.r=r;this.c=c;this.d=d;}
         }
+
         class PQNode {
             int r,c;
-            double priority; // for queue ordering (g + h)
-            double g;        // actual cost from start
+            double priority;
+            double g;
             PQNode(int r,int c,double g,double h){
                 this.r=r; this.c=c; this.g=g; this.priority=g+h;
             }
@@ -1013,52 +1014,74 @@ public class JungleMazeGame extends JFrame {
         boolean step() {
             if (type == SolverType.BFS || type == SolverType.DFS) {
                 if (deque.isEmpty()) return true;
+
                 SimpleNode cur;
-                if (type == SolverType.BFS) cur = deque.pollFirst();
-                else cur = deque.pollFirst(); // DFS addFirst when pushing
+                // FIX: DFS should pollLast (LIFO behavior)
+                if (type == SolverType.BFS) {
+                    cur = deque.pollFirst();  // BFS: FIFO (queue)
+                } else {
+                    cur = deque.pollLast();   // DFS: LIFO (stack)
+                }
+
                 if (cur == null) return true;
                 steps++;
                 int r = cur.r, c = cur.c;
-                if (mz.state[r][c] != Maze.START && mz.state[r][c] != Maze.EXIT) mz.state[r][c] = Maze.EXPLORED;
+
+                if (mz.state[r][c] != Maze.START && mz.state[r][c] != Maze.EXIT) {
+                    mz.state[r][c] = Maze.EXPLORED;
+                }
+
                 if (r==mz.exitR && c==mz.exitC) {
                     totalWeight = reconstructPath(parent, cur);
                     found = true;
                     return true;
                 }
+
                 for (int[] d : Maze.DIRS4) {
                     int nr = r + d[0], nc = c + d[1];
                     if (!mz.inBounds(nr,nc)) continue;
                     if (mz.state[nr][nc] == Maze.WALL) continue;
                     if (visited[nr][nc]) continue;
+
                     visited[nr][nc] = true;
                     parent[nr][nc] = cur;
-                    if (type == SolverType.BFS) deque.addLast(new SimpleNode(nr,nc,cur.d+1));
-                    else deque.addFirst(new SimpleNode(nr,nc,cur.d+1));
+
+                    // Both add to back (addLast)
+                    // BFS: pollFirst + addLast = FIFO ✓
+                    // DFS: pollLast + addLast = LIFO ✓
+                    deque.addLast(new SimpleNode(nr,nc,cur.d+1));
                 }
                 return false;
+
             } else {
-                // Dijkstra or A*
+                // Dijkstra or A* - unchanged
                 while (!pq.isEmpty()) {
                     PQNode top = pq.poll();
                     int r = top.r, c = top.c;
-                    // skip stale entries
+
                     if (top.g > dist[r][c] + 1e-9) {
                         continue;
                     }
+
                     steps++;
-                    if (mz.state[r][c] != Maze.START && mz.state[r][c] != Maze.EXIT) mz.state[r][c] = Maze.EXPLORED;
+                    if (mz.state[r][c] != Maze.START && mz.state[r][c] != Maze.EXIT) {
+                        mz.state[r][c] = Maze.EXPLORED;
+                    }
+
                     if (r==mz.exitR && c==mz.exitC) {
-                        // compute total weight from actual reconstructed path for consistency with visualization
                         totalWeight = reconstructPath(dparent, new SimpleNode(r,c,0));
                         found = true;
                         return true;
                     }
+
                     for (int[] d : Maze.DIRS4) {
                         int nr = r + d[0], nc = c + d[1];
                         if (!mz.inBounds(nr,nc)) continue;
                         if (mz.state[nr][nc] == Maze.WALL) continue;
+
                         double w = Maze.terrainWeight(mz.terrain[nr][nc]);
                         double tentative = dist[r][c] + w;
+
                         if (tentative + 1e-9 < dist[nr][nc]) {
                             dist[nr][nc] = tentative;
                             dparent[nr][nc] = new SimpleNode(r,c,0);
@@ -1066,19 +1089,17 @@ public class JungleMazeGame extends JFrame {
                             pq.add(new PQNode(nr,nc, tentative, h));
                         }
                     }
-                    // processed one valid node this step
                     return false;
                 }
-                // PQ empty
                 return true;
             }
         }
 
-        // reconstruct path; returns total weight along path and sets shortestPathSteps
         double reconstructPath(SimpleNode[][] parentArr, SimpleNode end) {
             int r = end.r, c = end.c;
             double sum = 0.0;
             int cellCount = 0;
+
             while (true) {
                 cellCount++;
                 if (mz.state[r][c] != Maze.START && mz.state[r][c] != Maze.EXIT) {
@@ -1089,7 +1110,7 @@ public class JungleMazeGame extends JFrame {
                 if (p == null) break;
                 r = p.r; c = p.c;
             }
-            // path length in moves = number of cells - 1 (if path exists)
+
             shortestPathSteps = Math.max(0, cellCount - 1);
             mz.state[mz.startR][mz.startC] = Maze.START;
             mz.state[mz.exitR][mz.exitC] = Maze.EXIT;
