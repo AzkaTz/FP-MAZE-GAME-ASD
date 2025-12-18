@@ -1046,7 +1046,7 @@ public class JungleMazeGame extends JFrame {
                     visited[nr][nc] = true;
                     parent[nr][nc] = cur;
 
-                    // Both add to back (addLast)
+
                     // BFS: pollFirst + addLast = FIFO ✓
                     // DFS: pollLast + addLast = LIFO ✓
                     deque.addLast(new SimpleNode(nr,nc,cur.d+1));
